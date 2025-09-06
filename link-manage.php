@@ -3,7 +3,8 @@
  * Plugin Name: Link Manage
  * Description: Admin: manage students and links; Frontend: show eligible links via shortcode [ielts-resource-links].
  * Version: 1.0.0
- * Author: You
+ * Author: Isuru Udantha
+ * Author URI: https://isuruudantha.com
  * Text Domain: link-manage
  */
 
