@@ -26,12 +26,12 @@ register_activation_hook(__FILE__, ['LM_Activator', 'activate']);
 
 /** Boot */
 add_action('plugins_loaded', function () {
-    // Admin UI
+    // Make absolutely sure the table exists (no runtime DB errors)
+    LM_Activator::maybe_install();
+
     if (is_admin()) {
         LM_Admin::init();
     }
-    // Shortcodes
     LM_Shortcode::init();
-    // AJAX
     LM_Ajax::init();
 });

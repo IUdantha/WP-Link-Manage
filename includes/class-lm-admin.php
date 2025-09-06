@@ -6,7 +6,6 @@ class LM_Admin {
         add_action('admin_menu', [__CLASS__, 'menu']);
         add_action('admin_enqueue_scripts', [__CLASS__, 'assets']);
 
-        // Admin-post handlers (links CRUD)
         add_action('admin_post_lm_add_link',   [__CLASS__, 'handle_add_link']);
         add_action('admin_post_lm_update_link',[__CLASS__, 'handle_update_link']);
         add_action('admin_post_lm_delete_link',[__CLASS__, 'handle_delete_link']);
@@ -112,7 +111,6 @@ class LM_Admin {
             </table>
 
             <?php
-            // simple pagination if needed
             $per_page = 50;
             $pages = ceil($total / $per_page);
             if ($pages > 1) {
@@ -134,10 +132,17 @@ class LM_Admin {
     public static function page_links() {
         if (!current_user_can('manage_options')) return;
 
-        global $wpdb;
-        $table = $wpdb->prefix . LM_DB_TABLE;
+        LM_Activator::maybe_install();
+        if (!LM_Activator::table_exists()) {
+            echo '<div class="wrap"><div class="notice notice-error"><p>'
+                . esc_html__('Link Manage: database table could not be created. Please check DB permissions and try reactivating the plugin.', 'link-manage')
+                . '</p></div></div>';
+            return;
+        }
 
-        // Editing?
+        global $wpdb;
+        $table = LM_Activator::table_name();
+
         $editing = false;
         $edit_row = null;
         if (isset($_GET['edit'])) {
@@ -146,7 +151,6 @@ class LM_Admin {
             $edit_row = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$table} WHERE id=%d", $id));
         }
 
-        // Fetch list (basic)
         $rows = $wpdb->get_results("SELECT * FROM {$table} ORDER BY created_at DESC");
         ?>
         <div class="wrap">
@@ -180,7 +184,7 @@ class LM_Admin {
                                 <select name="type" id="lm_type" required>
                                     <?php
                                     $types = ['PRE-IELTS','Advanced IELTS'];
-                                    $val = $edit_row->type ?? '';
+                                    $val = $edit_row->link_type ?? '';
                                     foreach ($types as $t) {
                                         echo '<option value="'.esc_attr($t).'" '.selected($val, $t, false).'>'.esc_html($t).'</option>';
                                     }
@@ -196,7 +200,6 @@ class LM_Admin {
                             <th><label for="lm_desc"><?php _e('Description','link-manage'); ?></label></th>
                             <td>
                                 <?php
-                                // “something like wordpress textarea” – use wp_editor for native feel
                                 $content = $edit_row->description ?? '';
                                 wp_editor($content, 'lm_desc', [
                                     'textarea_name' => 'description',
@@ -242,10 +245,10 @@ class LM_Admin {
                     </tr>
                 </thead>
                 <tbody>
-                <?php if ($rows): foreach ($rows as $r): ?>
+                <?php if (!empty($rows)): foreach ($rows as $r): ?>
                     <tr>
                         <td><strong><?php echo esc_html($r->title); ?></strong></td>
-                        <td><?php echo esc_html($r->type); ?></td>
+                        <td><?php echo esc_html($r->link_type); ?></td>
                         <td><a href="<?php echo esc_url($r->url); ?>" target="_blank" rel="noopener"><?php echo esc_html($r->url); ?></a></td>
                         <td><?php echo esc_html($r->created_at); ?></td>
                         <td><?php echo $r->expire_at ? esc_html($r->expire_at) : '<em>'.__('No expire','link-manage').'</em>'; ?></td>
@@ -285,13 +288,12 @@ class LM_Admin {
         $expire_at = $exp_on && $exp_d ? $exp_d . ' 23:59:59' : null;
 
         global $wpdb;
-        $table = $wpdb->prefix . LM_DB_TABLE;
+        $table = LM_Activator::table_name();
         $wpdb->insert($table, [
-            'title' => $title,
-            'type'  => $type,
-            'url'   => $url,
+            'title'       => $title,
+            'link_type'   => $type,
+            'url'         => $url,
             'description' => $desc,
-            // created_at = default CURRENT_TIMESTAMP
             'expire_at'   => $expire_at,
         ], ['%s','%s','%s','%s','%s']);
 
@@ -318,11 +320,11 @@ class LM_Admin {
         $expire_at = $exp_on && $exp_d ? $exp_d . ' 23:59:59' : null;
 
         global $wpdb;
-        $table = $wpdb->prefix . LM_DB_TABLE;
+        $table = LM_Activator::table_name();
         $wpdb->update($table, [
-            'title' => $title,
-            'type'  => $type,
-            'url'   => $url,
+            'title'       => $title,
+            'link_type'   => $type,
+            'url'         => $url,
             'description' => $desc,
             'expire_at'   => $expire_at,
         ], ['id'=>$id], ['%s','%s','%s','%s','%s'], ['%d']);
@@ -337,15 +339,13 @@ class LM_Admin {
         check_admin_referer('lm_delete_link_'.$id);
 
         global $wpdb;
-        $table = $wpdb->prefix . LM_DB_TABLE;
+        $table = LM_Activator::table_name();
         if ($id) {
             $wpdb->delete($table, ['id' => $id], ['%d']);
         }
         wp_redirect(admin_url('admin.php?page=lm-links&lm_msg=deleted'));
         exit;
     }
-
-    /* ------------------------------ SETTINGS ------------------------------ */
 
     public static function page_settings() {
         if (!current_user_can('manage_options')) return;
