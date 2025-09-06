@@ -6,6 +6,7 @@ class LM_Admin {
         add_action('admin_menu', [__CLASS__, 'menu']);
         add_action('admin_enqueue_scripts', [__CLASS__, 'assets']);
 
+        // Admin-post handlers (links CRUD)
         add_action('admin_post_lm_add_link',   [__CLASS__, 'handle_add_link']);
         add_action('admin_post_lm_update_link',[__CLASS__, 'handle_update_link']);
         add_action('admin_post_lm_delete_link',[__CLASS__, 'handle_delete_link']);
@@ -132,6 +133,7 @@ class LM_Admin {
     public static function page_links() {
         if (!current_user_can('manage_options')) return;
 
+        // Ensure table exists (self-heal; soft notice if still missing)
         LM_Activator::maybe_install();
         if (!LM_Activator::table_exists()) {
             echo '<div class="wrap"><div class="notice notice-error"><p>'
@@ -143,6 +145,7 @@ class LM_Admin {
         global $wpdb;
         $table = LM_Activator::table_name();
 
+        // Editing?
         $editing = false;
         $edit_row = null;
         if (isset($_GET['edit'])) {
@@ -151,7 +154,41 @@ class LM_Admin {
             $edit_row = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$table} WHERE id=%d", $id));
         }
 
-        $rows = $wpdb->get_results("SELECT * FROM {$table} ORDER BY created_at DESC");
+        /* -------------------------- NEW: FILTERS -------------------------- */
+        $type   = isset($_GET['lm_type']) ? sanitize_text_field($_GET['lm_type']) : '';
+        $q      = isset($_GET['lm_q']) ? sanitize_text_field($_GET['lm_q']) : '';
+        $c_from = isset($_GET['lm_c_from']) ? sanitize_text_field($_GET['lm_c_from']) : '';
+        $c_to   = isset($_GET['lm_c_to']) ? sanitize_text_field($_GET['lm_c_to']) : '';
+        $e_from = isset($_GET['lm_e_from']) ? sanitize_text_field($_GET['lm_e_from']) : '';
+        $e_to   = isset($_GET['lm_e_to']) ? sanitize_text_field($_GET['lm_e_to']) : '';
+
+        $where = [];
+        $params = [];
+
+        if ($type && in_array($type, ['PRE-IELTS','Advanced IELTS'], true)) {
+            $where[] = "link_type = %s";
+            $params[] = $type;
+        }
+        if ($q) {
+            $like = '%' . $wpdb->esc_like($q) . '%';
+            $where[] = "(title LIKE %s OR description LIKE %s OR url LIKE %s)";
+            $params[] = $like; $params[] = $like; $params[] = $like;
+        }
+        if ($c_from) { $where[] = "DATE(created_at) >= %s"; $params[] = $c_from; }
+        if ($c_to)   { $where[] = "DATE(created_at) <= %s"; $params[] = $c_to; }
+        // only consider rows with an expiry date for expire-range filters
+        if ($e_from) { $where[] = "(expire_at IS NOT NULL AND DATE(expire_at) >= %s)"; $params[] = $e_from; }
+        if ($e_to)   { $where[] = "(expire_at IS NOT NULL AND DATE(expire_at) <= %s)"; $params[] = $e_to; }
+
+        $sql = "SELECT * FROM {$table}";
+        if (!empty($where)) {
+            $sql .= " WHERE " . implode(' AND ', $where);
+        }
+        $sql .= " ORDER BY created_at DESC";
+
+        $rows = !empty($params) ? $wpdb->get_results($wpdb->prepare($sql, $params)) : $wpdb->get_results($sql);
+        /* ------------------------------------------------------------------ */
+
         ?>
         <div class="wrap">
             <h1><?php _e('Links','link-manage'); ?></h1>
@@ -232,7 +269,41 @@ class LM_Admin {
                 </form>
             </div>
 
+            <!-- NEW: Filters for admin list -->
             <h2 style="margin-top:24px;"><?php _e('All Links','link-manage'); ?></h2>
+
+            <form method="get" class="lm-filters" style="margin-bottom:10px;">
+                <input type="hidden" name="page" value="lm-links" />
+                <input type="search" name="lm_q" value="<?php echo esc_attr($q); ?>" placeholder="<?php esc_attr_e('Search title, URL, description…','link-manage'); ?>" />
+
+                <select name="lm_type">
+                    <option value=""><?php _e('All Types','link-manage'); ?></option>
+                    <?php foreach (['PRE-IELTS','Advanced IELTS'] as $t): ?>
+                        <option value="<?php echo esc_attr($t); ?>" <?php selected($type, $t); ?>><?php echo esc_html($t); ?></option>
+                    <?php endforeach; ?>
+                </select>
+
+                <span>
+                    <label style="margin-right:4px;"><?php _e('Created From','link-manage'); ?></label>
+                    <input type="date" name="lm_c_from" value="<?php echo esc_attr($c_from); ?>" />
+                    <label style="margin:0 4px;"><?php _e('To','link-manage'); ?></label>
+                    <input type="date" name="lm_c_to" value="<?php echo esc_attr($c_to); ?>" />
+                </span>
+
+                <span>
+                    <label style="margin-right:4px;"><?php _e('Expire From','link-manage'); ?></label>
+                    <input type="date" name="lm_e_from" value="<?php echo esc_attr($e_from); ?>" />
+                    <label style="margin:0 4px;"><?php _e('To','link-manage'); ?></label>
+                    <input type="date" name="lm_e_to" value="<?php echo esc_attr($e_to); ?>" />
+                </span>
+
+                <button class="button button-primary"><?php _e('Apply Filters','link-manage'); ?></button>
+                <?php
+                  $clear_url = remove_query_arg(['lm_q','lm_type','lm_c_from','lm_c_to','lm_e_from','lm_e_to','edit','paged']);
+                ?>
+                <a class="button button-secondary" href="<?php echo esc_url($clear_url); ?>"><?php _e('Reset','link-manage'); ?></a>
+            </form>
+
             <table class="widefat fixed striped">
                 <thead>
                     <tr>
@@ -262,7 +333,7 @@ class LM_Admin {
                         </td>
                     </tr>
                 <?php endforeach; else: ?>
-                    <tr><td colspan="6"><?php _e('No links yet.','link-manage'); ?></td></tr>
+                    <tr><td colspan="6"><?php _e('No links match your filters.','link-manage'); ?></td></tr>
                 <?php endif; ?>
                 </tbody>
             </table>
